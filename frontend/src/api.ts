@@ -1,3 +1,5 @@
+import { errorMessage } from './errors'
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
 
 export type AuthUser = { id: string; email: string; role: 'borrower' | 'lender' | 'admin'; created_at: string }
@@ -19,28 +21,6 @@ export type DashboardData = {
     reporting_months: number; is_synthetic: boolean
   }
   record_count: number; recent_records: FinancialRecord[]; latest_assessment: Assessment | null
-}
-
-type ValidationIssue = { loc?: Array<string | number>; msg?: string }
-
-// FastAPI returns `detail` as a string for HTTP errors, but as a list of
-// issues for request-validation (422) errors. Turn either into readable text.
-function errorMessage(detail: unknown, fallback: string): string {
-  if (typeof detail === 'string' && detail.trim()) return detail
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((issue: ValidationIssue) => {
-        const msg = (issue?.msg ?? '').replace(/^Value error, /, '')
-        if (!msg) return ''
-        const field = issue.loc?.filter((part) => part !== 'body').at(-1)
-        if (typeof field !== 'string') return msg
-        const label = field.replace(/_/g, ' ')
-        return `${label.charAt(0).toUpperCase()}${label.slice(1)}: ${msg}`
-      })
-      .filter(Boolean)
-    if (messages.length) return messages.join(' ')
-  }
-  return fallback
 }
 
 export async function authenticate(path: 'login' | 'register', email: string, password: string): Promise<AuthResponse> {
