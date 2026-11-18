@@ -2,35 +2,79 @@
 
 Credora is an educational and research prototype for exploring alternative financial-health indicators. It is not an officially recognized credit score, does not replace RBI-regulated credit information companies, and does not make real lending decisions.
 
-## Current implementation
+## What it does
 
-- React, TypeScript, and Vite borrower account interface.
-- FastAPI API with borrower registration, login, JWT authentication, and `/auth/me`.
-- Passwords hashed with Argon2 via `pwdlib`; successful registration and login events are recorded in the audit table.
-- Borrower-only monthly entry for income, expenses, savings contributions, debt balances/payments, and month-end liquid reserves. Records can be listed and deleted.
-- An authenticated borrower dashboard with monthly charts, financial-health indicators, recommendations, and saved assessment history.
-- A separate financial-intelligence module computes descriptive indicators and persists versioned assessment snapshots. Missing data stays unavailable rather than being treated as zero.
-- SQLAlchemy 2 models and Alembic migrations for users, profiles, financial records, access grants, assessments, indicators, synthetic runs, and audit logs.
-- PostgreSQL and local Docker Compose development setup.
-- Public registration can create borrower accounts only. Lender provisioning and borrower consent flows are not implemented yet, so no lender access endpoint is exposed.
-- Portfolio screens, statement uploads, synthetic demo-data loading, and machine-learning models are not implemented yet.
+- **Borrower accounts.** Sign up, sign in, and see only your own data. Passwords are hashed with Argon2, logins use short-lived JWTs, and sign-up/sign-in are rate-limited per IP.
+- **Monthly records.** Income, expenses, savings contributions, debts (balance plus required payment) and month-end cash reserves, in INR, one calendar month at a time.
+- **Dashboard.** Monthly chart, 11 descriptive indicators, and saved assessment snapshots. Missing months stay "not enough data" rather than being counted as zero.
+- **Suggestions.** Rule- and trend-based prompts tagged *needs attention*, *worth watching*, *more data* or *going well*. See [`docs/financial-methodology.md`](docs/financial-methodology.md).
+- **Sample data.** An empty account can be filled with six months of invented data for one of three personas, and cleared again in one click.
+- **Demo accounts.** With `DEMO_MODE=true`, visitors can open three shared, read-only demo accounts from the sign-in page without registering.
 
-## Run locally with Docker
+Not built yet: lender accounts and borrower consent, admin tools, statement uploads, machine-learning models, email verification and password reset.
 
-1. Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD` and a unique `JWT_SECRET_KEY` (at least 32 random bytes).
-2. Run `docker compose up --build` from this directory. If the containers are already running, this rebuilds them with current code and applies the new database migration.
-3. Open the frontend at `http://localhost:5173` and API documentation at `http://localhost:8000/docs`.
+## Run locally (development)
 
-The backend applies Alembic migrations before starting. PostgreSQL data is kept in the `postgres_data` named volume.
+1. Copy `.env.example` to `.env` and replace the `change-this` values (the file shows how to generate secrets).
+2. Run `docker compose up --build`.
+3. Open http://localhost:5173. API docs are at http://localhost:8000/docs.
 
-## Run services separately
+On startup the backend applies database migrations and, with `DEMO_MODE=true`, re-creates the demo accounts with fresh data. Source folders are mounted into the containers, so code changes apply without rebuilding. Rebuild only after changing dependencies (`pyproject.toml`, `package.json`).
 
-Backend: from `backend/`, create and activate a virtual environment, install with `pip install -e .`, configure `DATABASE_URL` and `JWT_SECRET_KEY`, run `alembic upgrade head`, then `uvicorn app.main:app --reload`.
+To reset the database completely: `docker compose down -v`.
 
-Frontend: from `frontend/`, run `npm install` and `npm run dev`. Set `VITE_API_URL` if the API is not at `http://localhost:8000/api/v1`.
+### Demo personas
 
-## Architecture
+| Persona | Story |
+|---|---|
+| Steady salaried | Regular salary, ~23% savings rate, small education loan, nearly 4 months of reserves |
+| Irregular freelancer | Income swings between about ₹38k and ₹1.2L, thin cash buffer, an overspent latest month |
+| Stretched by debt | ~42% of income goes to loan and card payments, expenses rising every month |
 
-See [`docs/architecture.md`](docs/architecture.md) and [`docs/development-log.md`](docs/development-log.md) for the initial design and decisions.
+Demo accounts have no password. They are reached only through the "Try a demo" buttons, and creating or deleting records in them is blocked.
 
-Financial indicator definitions and limits are in [`docs/financial-methodology.md`](docs/financial-methodology.md).
+## Tests
+
+With the dev stack running:
+
+```bash
+sh scripts/check.sh
+```
+
+This runs the backend tests (pytest, against a separate `credora_test` database) and the frontend type-check, tests (vitest) and production build. To run one side only: `docker compose exec backend pytest` or `docker compose exec frontend npm run check`.
+
+## Production build
+
+`docker-compose.prod.yml` runs the production images locally so you can check them before deploying:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build
+```
+
+The site is served at http://localhost:8080 and the API at http://localhost:8001. It uses its own database volume, separate from the dev stack.
+
+- **Frontend** (`frontend/Dockerfile.prod`): builds the static site and serves it with nginx. The API address is fixed at build time through the `VITE_API_URL` build argument.
+- **Backend** (`backend/Dockerfile.prod`): no test tools, runs as a non-root user, applies migrations and seeds demo accounts on start, and listens on `$PORT` (default 8000).
+
+### Deploying
+
+Any host that runs Docker images works (Render, Railway, Fly.io, a VPS). You need three things:
+
+1. **A Postgres database.** Set the backend's `DATABASE_URL` to it, using the `postgresql+psycopg://` scheme.
+2. **The backend service** from `backend/Dockerfile.prod`, with environment variables:
+   - `DATABASE_URL`
+   - `JWT_SECRET_KEY`: a new random secret, never reused from development
+   - `CORS_ORIGINS`: the frontend's public URL
+   - `DEMO_MODE=true`
+   - `DOCS_ENABLED=false`
+3. **The frontend service** from `frontend/Dockerfile.prod`, built with `VITE_API_URL=https://<backend-url>/api/v1`.
+
+Notes:
+- The rate limiter keeps counts in memory for each worker process. With `WEB_CONCURRENCY` above 1, or several instances, the effective limit is multiplied.
+- Logins are stored in the browser's local storage. That is fine for a demo but should be revisited before handling real users' data.
+
+## More documentation
+
+- [`docs/architecture.md`](docs/architecture.md): system shape, roles, data model and security baseline
+- [`docs/financial-methodology.md`](docs/financial-methodology.md): indicator formulas, thresholds and suggestion rules
+- [`docs/development-log.md`](docs/development-log.md): decisions made along the way

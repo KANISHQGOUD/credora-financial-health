@@ -1,0 +1,50 @@
+# Runs the production build locally, to check it before deploying.
+#   docker compose -f docker-compose.prod.yml up --build
+# Site: http://localhost:8080   API: http://localhost:8001/api/v1
+# Uses its own project name and database volume, so it doesn't touch the dev stack.
+name: credora-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-credora}
+      POSTGRES_USER: ${POSTGRES_USER:-credora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-credora} -d ${POSTGRES_DB:-credora}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-credora}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-credora}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      CORS_ORIGINS: http://localhost:8080
+      DEMO_MODE: "true"
+      DOCS_ENABLED: "false"
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: http://localhost:8001/api/v1
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
