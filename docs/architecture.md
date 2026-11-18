@@ -32,4 +32,4 @@ Production images are separate from development ones. The frontend is built to s
 
 ## Explicit limitations
 
-Authentication is implemented, but email verification, password reset, refresh-token rotation, rate limiting, and administrative lender provisioning are not. Financial entry, descriptive assessment, suggestions and sample/demo data are implemented. Lender workflows, statement upload and ML are not. The rate limiter is in-memory and doesn't share counts across instances.
+Authentication is implemented, but email verification, password reset, refresh-token rotation, and administrative lender provisioning are not. Financial entry, descriptive assessment, suggestions and sample/demo data are implemented. Lender workflows, statement upload and ML are not. Sign-up, sign-in and demo logins are rate-limited per IP (30/minute), and sign-in attempts also per IP and email (5/minute). The rate limiter is in-memory and doesn't share counts across instances.

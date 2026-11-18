@@ -4,7 +4,7 @@ Credora is an educational and research prototype for exploring alternative finan
 
 ## What it does
 
-- **Borrower accounts.** Sign up, sign in, and see only your own data. Passwords are hashed with Argon2, logins use short-lived JWTs, and sign-up/sign-in are rate-limited per IP.
+- **Borrower accounts.** Sign up, sign in, and see only your own data. Passwords are hashed with Argon2, logins use short-lived JWTs, and sign-up/sign-in are rate-limited (30 requests a minute per network, and 5 sign-in attempts a minute per account).
 - **Monthly records.** Income, expenses, savings contributions, debts (balance plus required payment) and month-end cash reserves, in INR, one calendar month at a time.
 - **Dashboard.** Monthly chart, 11 descriptive indicators, and saved assessment snapshots. Missing months stay "not enough data" rather than being counted as zero.
 - **Suggestions.** Rule- and trend-based prompts tagged *needs attention*, *worth watching*, *more data* or *going well*. See [`docs/financial-methodology.md`](docs/financial-methodology.md).
@@ -70,6 +70,7 @@ Any host that runs Docker images works (Render, Railway, Fly.io, a VPS). You nee
 3. **The frontend service** from `frontend/Dockerfile.prod`, built with `VITE_API_URL=https://<backend-url>/api/v1`.
 
 Notes:
+- The rate limits are generous per IP because a class or office shares one public address; password guessing is limited per IP and email instead. Change them with `AUTH_RATE_LIMIT` and `LOGIN_ACCOUNT_RATE_LIMIT`.
 - The rate limiter keeps counts in memory for each worker process. With `WEB_CONCURRENCY` above 1, or several instances, the effective limit is multiplied.
 - Logins are stored in the browser's local storage. That is fine for a demo but should be revisited before handling real users' data.
 

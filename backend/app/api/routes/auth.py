@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.core.config import settings
-from app.core.rate_limit import limiter
+from app.core.rate_limit import check_login_attempts, limiter
 from app.db.session import get_db
 from app.models.audit_log import AuditLog
 from app.models.profile import FinancialProfile
@@ -39,7 +39,8 @@ def register(request: Request, payload: RegisterRequest, db: Session = Depends(g
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(settings.auth_rate_limit)
 def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
+    check_login_attempts(request, str(payload.email))
+    user =db.scalar(select(User).where(User.email == str(payload.email).lower()))
     if user is None or not verify_password(payload.password, user.password_hash) or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
