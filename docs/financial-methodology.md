@@ -27,3 +27,22 @@ This is an educational, configurable heuristic framework. Its labels and thresho
 | Average recorded debt balance | Mean of reported monthly debt balances | Only months with debt records; no debt records are not treated as zero debt |
 
 Configurable threshold bands are in `backend/app/intelligence/financial_health.py`. Assessment categories are descriptive only. Recommendations are simple prompts based on reported indicators, not personalized financial advice.
+
+## Suggestions (methodology `baseline-heuristic-v2`)
+
+Suggestions are generated in `backend/app/intelligence/recommendations.py`. They are short, descriptive prompts, not personalised financial advice. Each has a severity: **attention**, **watch**, **info** (more data would help) or **positive**. They are sorted in that order, trend warnings come before threshold warnings within a severity, and at most five are shown.
+
+| Source | Rule | Severity |
+|---|---|---|
+| Threshold | Income variability, cash-flow volatility, savings rate, expense-to-income, debt-payment-to-income or reserve coverage is in its "watch" or "attention" band | watch / attention |
+| Threshold | Reserve coverage, savings rate, debt-payment-to-income, expense-to-income or income variability is favourable (at most two positive notes in total) | positive |
+| Trend | Expenses rose in each of the last 3 reported months and by at least 5% overall | watch |
+| Trend | Income fell in each of the last 3 reported months and by at least 5% overall | watch |
+| Trend | In the latest month with both income and expenses, expenses were higher than income | attention |
+| Trend | Month-end reserves rose (positive) or fell (watch) for 3 reported months, by at least 5% | positive / watch |
+| Trend | Savings contributions above zero in each of the last 3 reported months | positive |
+| Data | No records; fewer than 3 months; no reserve balances; expenses without income in a month; a debt without a required payment | info |
+
+Trends use the last three *reported* months for each series; a month without a value for that series is skipped, not treated as zero. If no rule applies, the message "Keep recording complete monthly information…" is shown.
+
+Saved assessments store both the plain messages and the structured items. Snapshots saved under `baseline-heuristic-v1` only have plain messages, which the UI shows as neutral items.

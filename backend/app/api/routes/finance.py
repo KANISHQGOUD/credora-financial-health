@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.db.session import get_db
-from app.intelligence.financial_health import calculate_financial_health
+from app.intelligence.financial_health import METHODOLOGY_VERSION, calculate_financial_health
 from app.models.audit_log import AuditLog
 from app.models.financial import CashReserveRecord, DebtRecord, ExpenseRecord, IncomeRecord, SavingsRecord
 from app.models.records import AssessmentIndicator, FinancialAssessment
@@ -56,6 +56,8 @@ def _assessment_response(row: FinancialAssessment, db: Session) -> dict[str, Any
                         "label": (row.details or {}).get("indicator_labels", {}).get(i.indicator_name, i.indicator_name.replace("_", " ").title())}
                        for i in indicators],
         "recommendations": (row.details or {}).get("recommendations", []),
+        "recommendation_items": (row.details or {}).get("recommendation_items", []),
+        "is_synthetic": row.is_synthetic,
     }
 
 
@@ -130,9 +132,10 @@ def create_assessment(db: Session = Depends(get_db), user: User = Depends(BORROW
     all_periods = [r["period_start"] for r in _load_records(db, user.id)] + [r["period_start"] for r in _load_reserves(db, user.id)]
     window = {"from": min(all_periods).isoformat(), "through": max(all_periods).isoformat()} if all_periods else {}
     assessment = FinancialAssessment(
-        borrower_id=user.id, methodology_version="baseline-heuristic-v1", reporting_window=window,
-        overall_category=analysis["overall_category"], summary=analysis["summary"], is_synthetic=False,
+        borrower_id=user.id, methodology_version=METHODOLOGY_VERSION, reporting_window=window,
+        overall_category=analysis["overall_category"], summary=analysis["summary"], is_synthetic=analysis["is_synthetic"],
         details={"recommendations": analysis["recommendations"],
+                 "recommendation_items": analysis["recommendation_items"],
                  "indicator_labels": {i["name"]: i["label"] for i in analysis["indicators"]}},
     )
     db.add(assessment)

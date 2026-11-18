@@ -2,13 +2,14 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { ReactNode } from 'react'
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BadgeCheck, Banknote, ChartNoAxesCombined,
-  CircleHelp, Clock3, Fingerprint, Landmark, Plus, ShieldCheck, Sparkles, Trash2, Wallet,
+  CircleHelp, Clock3, Eye, Fingerprint, Info, Landmark, Plus, ShieldCheck, Sparkles, ThumbsUp, Trash2, TriangleAlert, Wallet,
 } from 'lucide-react'
 import {
   addRecord, authenticate, createAssessment, deleteRecord, getCurrentUser, getDashboard,
   listRecords, type AuthUser, type DashboardData, type FinancialRecord,
-  type Indicator, type RecordKind,
+  type Indicator, type Recommendation, type RecordKind, type Severity,
 } from './api'
+import { severityLabels, toRecommendations } from './recommendations'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 type AuthMode = 'login' | 'register'
@@ -220,7 +221,7 @@ function Dashboard({ user, dashboard, records, loading, busy, error, onSave, onD
   const indicators = analysis?.indicators ?? []
   const assessmentSnapshot = dashboard?.latest_assessment
   const displayedAssessmentIndicators = assessmentSnapshot?.indicators ?? indicators
-  const displayedRecommendations = assessmentSnapshot?.recommendations ?? analysis?.recommendations ?? []
+  const displayedRecommendations = toRecommendations(assessmentSnapshot ?? analysis)
   const find = (name: string) => indicators.find(item => item.name === name)
 
   return <div className="dashboard-page">
@@ -267,7 +268,7 @@ function Dashboard({ user, dashboard, records, loading, busy, error, onSave, onD
               {assessmentSnapshot ? <div className="saved-assessment-line"><BadgeCheck size={15} /> Saved snapshot · {new Date(assessmentSnapshot.created_at).toLocaleString()} <span>· {assessmentSnapshot.overall_category}</span></div> : <div className="saved-assessment-line unsaved"><Activity size={15} /> Live view · Save an assessment to keep a dated snapshot</div>}
               <div className="indicator-grid">{displayedAssessmentIndicators.map(indicator => <IndicatorRow key={indicator.name} indicator={indicator} />)}</div>
               <p className="disclaimer">This baseline framework is experimental. It is not a validated default-risk prediction, official credit score, or lending recommendation. Unreported information is shown as limited data.</p>
-              <div className="recommendations"><h3>Ideas to consider</h3>{displayedRecommendations.map((item, index) => <div className="recommendation" key={index}><span>{String(index + 1).padStart(2, '0')}</span>{item}</div>)}</div>
+              <div className="recommendations"><h3>Ideas to consider</h3>{displayedRecommendations.map(item => <RecommendationRow key={item.id} item={item} />)}</div>
             </section>
 
             <section className="panel records-panel" id="records">
@@ -291,6 +292,17 @@ function MetricCard({ title, indicator, icon, tint }: { title: string; indicator
 
 function IndicatorRow({ indicator }: { indicator: Indicator }) {
   return <div className="indicator-row"><div className="indicator-copy"><strong>{indicator.label}</strong><small>{indicator.explanation}</small></div><div className="indicator-result"><strong>{displayIndicator(indicator)}</strong><span className={`status-pill ${indicator.status.replace('_', '-')}`}>{indicator.status.replace('_', ' ')}</span></div></div>
+}
+
+const severityIcons: Record<Severity, ReactNode> = {
+  attention: <TriangleAlert size={13} />,
+  watch: <Eye size={13} />,
+  info: <Info size={13} />,
+  positive: <ThumbsUp size={13} />,
+}
+
+function RecommendationRow({ item }: { item: Recommendation }) {
+  return <div className={`recommendation ${item.severity}`}><span className="rec-icon" aria-hidden="true">{severityIcons[item.severity]}</span><div><em className="rec-tag">{severityLabels[item.severity]}</em><p>{item.message}</p></div></div>
 }
 
 function RecordRow({ record, onDelete, disabled }: { record: FinancialRecord; onDelete: () => void; disabled: boolean }) {

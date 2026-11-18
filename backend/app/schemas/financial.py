@@ -53,3 +53,5 @@ class AssessmentResponse(BaseModel):
     summary: str | None
     indicators: list[dict]
     recommendations: list[str]
+    recommendation_items: list[dict] = []
+    is_synthetic: bool = False

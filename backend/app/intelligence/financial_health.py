@@ -10,6 +10,10 @@ from decimal import Decimal
 from statistics import pstdev
 from typing import Any
 
+from app.intelligence.recommendations import build_recommendations
+
+METHODOLOGY_VERSION = "baseline-heuristic-v2"
+
 BASELINE_THRESHOLDS = {
     "income_variability": {"favorable_max": 0.15, "attention_above": 0.35},
     "cash_flow_volatility": {"favorable_max": 0.20, "attention_above": 0.40},
@@ -37,7 +41,12 @@ def _ratio_status(value: float | None, favorable: float, concern: float, *, lowe
 
 
 def calculate_financial_health(records: list[dict[str, Any]], reserves: list[dict[str, Any]]) -> dict[str, Any]:
-    """Calculate period-aligned indicators and chart series from normalized records."""
+    """Calculate period-aligned indicators and chart series from normalized records.
+
+    Records or reserves carrying a ``synthetic_run_id`` came from generated sample
+    data; the result is then flagged ``is_synthetic``.
+    """
+    is_synthetic = any(row.get("synthetic_run_id") for row in [*records, *reserves])
     periods: dict[str, dict[str, Any]] = defaultdict(lambda: {
         "income": [], "expense": [], "savings": [], "debt_balance": [], "debt_payment": [],
         "debt_payment_complete": True, "reserve": None,
@@ -148,26 +157,17 @@ def calculate_financial_health(records: list[dict[str, Any]], reserves: list[dic
     available_flags = [i for i in indicators if i["status"] in {"favorable", "watch", "attention"}]
     concerns = [i for i in indicators if i["status"] == "attention"]
     overall = "More data needed" if len(available_flags) < 2 else "Needs attention" if concerns else "Steady indicators"
-    recommendations: list[str] = []
-    if income_variability is not None and income_variability > BASELINE_THRESHOLDS["income_variability"]["attention_above"]:
-        recommendations.append("Income varied across the months reported. Consider planning essential expenses around a conservative income month.")
-    if expense_income_ratio is not None and expense_income_ratio > BASELINE_THRESHOLDS["expense_to_income_ratio"]["attention_above"]:
-        recommendations.append("Reported expenses use a large share of reported income. Review flexible spending categories and recurring commitments.")
-    if savings_rate is not None and savings_rate < BASELINE_THRESHOLDS["savings_rate"]["attention_below"]:
-        recommendations.append("Reported savings contributions are below 10% of income. A small, consistent monthly transfer may help build a buffer.")
-    if debt_to_income is not None and debt_to_income > BASELINE_THRESHOLDS["debt_to_income_ratio"]["attention_above"]:
-        recommendations.append("Reported monthly debt payments are a large share of income. Review payment dates and outstanding obligations with a qualified adviser if needed.")
-    if reserve_coverage is not None and reserve_coverage < BASELINE_THRESHOLDS["financial_reserve_coverage"]["attention_below"]:
-        recommendations.append("Recorded liquid reserves cover less than one month of reported expenses. Consider building a small emergency buffer over time.")
-    if not recommendations:
-        recommendations.append("Keep recording complete monthly information to make these descriptive indicators more useful over time.")
+    recommendation_items = build_recommendations(indicators, monthly, len(monthly))
 
     return {
         "overall_category": overall,
         "summary": "Heuristic financial-health overview based only on information you entered. It is not a credit score or lending recommendation.",
         "indicators": indicators,
-        "recommendations": recommendations,
+        # Plain strings kept for older clients and saved snapshots; items carry severity.
+        "recommendations": [item["message"] for item in recommendation_items],
+        "recommendation_items": recommendation_items,
         "monthly": monthly[-12:],
         "reporting_months": len(monthly),
-        "is_synthetic": False,
+        "is_synthetic": is_synthetic,
+        "methodology_version": METHODOLOGY_VERSION,
     }

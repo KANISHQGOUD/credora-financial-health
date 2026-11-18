@@ -10,13 +10,17 @@ export type FinancialRecord = {
   category: string; source_label?: string | null; required_payment?: number | null
 }
 export type Indicator = { name: string; label: string; value: number | null; unit: string; status: string; explanation: string }
+export type Severity = 'attention' | 'watch' | 'info' | 'positive'
+export type Recommendation = { id: string; severity: Severity; indicator: string | null; message: string }
 export type Assessment = {
   id: string; created_at: string; methodology_version: string; overall_category: string | null
   summary: string | null; indicators: Indicator[]; recommendations: string[]
+  recommendation_items?: Recommendation[]; is_synthetic?: boolean
 }
 export type DashboardData = {
   analysis: {
     overall_category: string; summary: string; indicators: Indicator[]; recommendations: string[]
+    recommendation_items: Recommendation[]; methodology_version: string
     monthly: Array<{ month: string; income: number | null; expenses: number | null; savings: number | null; debt_balance: number | null; debt_payment: number | null; reserve: number | null }>
     reporting_months: number; is_synthetic: boolean
   }

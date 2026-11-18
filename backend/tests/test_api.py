@@ -101,7 +101,10 @@ def test_dashboard_and_saved_assessment(client: TestClient, auth: dict) -> None:
     saved = client.post(f"{API}/assessments", headers=auth)
     assert saved.status_code == 201
     body = saved.json()
-    assert body["methodology_version"].startswith("baseline-heuristic")
+    assert body["methodology_version"] == "baseline-heuristic-v2"
+    assert body["is_synthetic"] is False
+    assert body["recommendation_items"]
+    assert body["recommendations"] == [i["message"] for i in body["recommendation_items"]]
     names = {i["name"] for i in body["indicators"]}
     assert {"average_monthly_income", "expense_to_income_ratio", "savings_rate"} <= names
     assert body["recommendations"]
