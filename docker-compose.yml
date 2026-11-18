@@ -36,12 +36,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+    command: ["sh", "-c", "alembic upgrade head && python -m app.demo.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
 
   frontend:
     build: ./frontend
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
+      # File events from Windows/macOS mounts don't reach the container; poll instead.
+      CHOKIDAR_USEPOLLING: "true"
     volumes:
       - ./frontend/src:/app/src
     ports:

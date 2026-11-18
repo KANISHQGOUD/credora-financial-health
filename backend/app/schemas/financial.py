@@ -43,6 +43,7 @@ class FinancialRecordResponse(BaseModel):
     category: str
     source_label: str | None = None
     required_payment: Decimal | None = None
+    is_sample: bool = False
 
 
 class AssessmentResponse(BaseModel):

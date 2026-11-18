@@ -20,6 +20,8 @@ class PeriodRecord(Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
     category: Mapped[str] = mapped_column(String(60), nullable=False)
     source_label: Mapped[str] = mapped_column(String(100), nullable=False, default="", server_default="")
+    synthetic_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("synthetic_data_runs.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -79,5 +81,7 @@ class CashReserveRecord(Base):
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
+    synthetic_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("synthetic_data_runs.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

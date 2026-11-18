@@ -2,12 +2,13 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { ReactNode } from 'react'
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BadgeCheck, Banknote, ChartNoAxesCombined,
-  CircleHelp, Clock3, Eye, Fingerprint, Info, Landmark, Plus, ShieldCheck, Sparkles, ThumbsUp, Trash2, TriangleAlert, Wallet,
+  CircleHelp, Clock3, Eye, FlaskConical, Fingerprint, Info, Landmark, PlayCircle, Plus, ShieldCheck, Sparkles, ThumbsUp, Trash2,
+  TriangleAlert, Wallet,
 } from 'lucide-react'
 import {
-  addRecord, authenticate, createAssessment, deleteRecord, getCurrentUser, getDashboard,
-  listRecords, type AuthUser, type DashboardData, type FinancialRecord,
-  type Indicator, type Recommendation, type RecordKind, type Severity,
+  addRecord, authenticate, clearSampleData, createAssessment, deleteRecord, demoLogin, getCurrentUser, getDashboard,
+  getPersonas, listRecords, loadSampleData, SessionExpiredError, type AuthUser, type DashboardData, type FinancialRecord,
+  type Indicator, type Persona, type PersonaKey, type Recommendation, type RecordKind, type Severity,
 } from './api'
 import { severityLabels, toRecommendations } from './recommendations'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -60,11 +61,21 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [actionError, setActionError] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [personas, setPersonas] = useState<Persona[]>([])
+  const [demoLogins, setDemoLogins] = useState(false)
+
+  useEffect(() => {
+    getPersonas().then(info => { setPersonas(info.personas); setDemoLogins(info.demo_logins) }).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEY)
     if (!token) return
-    getCurrentUser(token).then(setUser).catch(() => localStorage.removeItem(TOKEN_KEY))
+    getCurrentUser(token).then(setUser).catch(problem => {
+      localStorage.removeItem(TOKEN_KEY)
+      if (problem instanceof SessionExpiredError) setNotice(problem.message)
+    })
   }, [])
 
   useEffect(() => {
@@ -80,11 +91,43 @@ function App() {
         setRecords(nextRecords)
       })
       .catch(problem => {
-        if (active) setActionError(problem instanceof Error ? problem.message : 'Could not load your financial profile.')
+        if (active) fail(problem, 'Could not load your financial profile.')
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [user])
+
+  /** Show an action error, or sign out with a notice if the login has expired. */
+  function fail(problem: unknown, fallback: string) {
+    if (problem instanceof SessionExpiredError) {
+      signOut()
+      setNotice(problem.message)
+      return
+    }
+    setActionError(problem instanceof Error ? problem.message : fallback)
+  }
+
+  function startSession(token: string, nextUser: AuthUser) {
+    localStorage.setItem(TOKEN_KEY, token)
+    setDashboard(null)
+    setRecords([])
+    setNotice('')
+    setActionError('')
+    setUser(nextUser)
+  }
+
+  async function tryDemo(persona: PersonaKey) {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await demoLogin(persona)
+      startSession(result.access_token, result.user)
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'The demo account is not available right now.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function refresh() {
     const token = localStorage.getItem(TOKEN_KEY)
@@ -100,10 +143,7 @@ function App() {
     setError('')
     try {
       const result = await authenticate(mode, email, password)
-      localStorage.setItem(TOKEN_KEY, result.access_token)
-      setDashboard(null)
-      setRecords([])
-      setUser(result.user)
+      startSession(result.access_token, result.user)
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : 'Something went wrong.')
     } finally {
@@ -129,7 +169,7 @@ function App() {
       await createAssessment(token)
       await refresh()
     } catch (problem) {
-      setActionError(problem instanceof Error ? problem.message : 'Could not save the assessment.')
+      fail(problem, 'Could not save the assessment.')
     } finally {
       setActionBusy(false)
     }
@@ -147,7 +187,7 @@ function App() {
       })
       await refresh()
     } catch (problem) {
-      setActionError(problem instanceof Error ? problem.message : 'Could not save this record.')
+      if (problem instanceof SessionExpiredError) { fail(problem, ''); return }
       throw problem
     } finally {
       setActionBusy(false)
@@ -157,16 +197,34 @@ function App() {
   async function removeRecord(record: FinancialRecord) {
     const token = localStorage.getItem(TOKEN_KEY)
     if (!token) return
+    const when = new Date(`${record.period_start}T12:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+    if (!window.confirm(`Delete "${record.category}" (${labels[record.kind]}, ${when}, ${inr(record.amount)})? This can't be undone.`)) return
+    await runAction(() => deleteRecord(token, record.kind, record.id), 'Could not delete this record.')
+  }
+
+  async function runAction(action: () => Promise<unknown>, fallback: string) {
     setActionBusy(true)
     setActionError('')
     try {
-      await deleteRecord(token, record.kind, record.id)
+      await action()
       await refresh()
     } catch (problem) {
-      setActionError(problem instanceof Error ? problem.message : 'Could not delete this record.')
+      fail(problem, fallback)
     } finally {
       setActionBusy(false)
     }
+  }
+
+  async function addSample(persona: PersonaKey) {
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (token) await runAction(() => loadSampleData(token, persona), 'Could not load sample data.')
+  }
+
+  async function removeSample() {
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (!token) return
+    if (!window.confirm('Remove all sample data from your account? Records you added yourself are kept.')) return
+    await runAction(() => clearSampleData(token), 'Could not remove sample data.')
   }
 
   return (
@@ -178,7 +236,8 @@ function App() {
       </header>
 
       {user ? <Dashboard user={user} dashboard={dashboard} records={records} loading={loading} busy={actionBusy} error={actionError}
-        onSave={saveRecord} onDelete={removeRecord} onAssess={generateAssessment} /> : <section className="hero" id="home">
+        personas={personas} onSave={saveRecord} onDelete={removeRecord} onAssess={generateAssessment}
+        onLoadSample={addSample} onClearSample={removeSample} onSignOut={signOut} /> : <section className="hero" id="home">
         <div className="hero-copy">
           <div className="hero-label"><Sparkles size={14} /> A clearer picture of your finances</div>
           <h1>More than a credit history.<br /><em>A fuller financial story.</em></h1>
@@ -193,6 +252,7 @@ function App() {
         <section className="auth-card" id="access">
           <div className="auth-heading"><div><p className="eyebrow">BORROWER PORTAL</p><h2>{mode === 'register' ? 'Create your account' : 'Welcome back'}</h2></div><div className="help-icon" title="Your account data is private"><CircleHelp size={18} /></div></div>
           <p className="auth-subtitle">{mode === 'register' ? 'Start building a clearer picture of your financial health.' : 'Sign in to continue to your financial profile.'}</p>
+          {notice && <p className="notice-message" role="status">{notice}</p>}
           <form onSubmit={submitAuth}>
             <label htmlFor="email">Email address</label>
             <input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required />
@@ -202,6 +262,10 @@ function App() {
             <button className="submit-button" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'register' ? 'Create account' : 'Sign in'} <ArrowRight size={16} /></button>
           </form>
           <div className="switch-mode">{mode === 'register' ? 'Already have an account?' : 'New to Credora?'} <button type="button" onClick={() => { setMode(mode === 'register' ? 'login' : 'register'); setError('') }}>{mode === 'register' ? 'Sign in' : 'Create an account'}</button></div>
+          {demoLogins && personas.length > 0 && <div className="demo-strip">
+            <p><PlayCircle size={14} /> Just looking? Explore a ready-made demo account</p>
+            <div className="demo-buttons">{personas.map(persona => <button key={persona.key} type="button" className="demo-button" onClick={() => tryDemo(persona.key)} disabled={busy} title={persona.description}><strong>{persona.label}</strong><small>{persona.description}</small></button>)}</div>
+          </div>}
           <div className="privacy-foot"><ShieldCheck size={14} /> Sharing controls will be added before lender access.</div>
         </section>
       </section>}
@@ -211,12 +275,18 @@ function App() {
   )
 }
 
-function Dashboard({ user, dashboard, records, loading, busy, error, onSave, onDelete, onAssess }: {
+function Dashboard({ user, dashboard, records, loading, busy, error, personas, onSave, onDelete, onAssess, onLoadSample, onClearSample, onSignOut }: {
   user: AuthUser; dashboard: DashboardData | null; records: FinancialRecord[]; loading: boolean; busy: boolean; error: string
+  personas: Persona[]
   onSave: (kind: RecordKind, value: { month: string; amount: number; category: string; source: string; payment: number | null }) => Promise<void>
   onDelete: (record: FinancialRecord) => void; onAssess: () => void
+  onLoadSample: (persona: PersonaKey) => void; onClearSample: () => void; onSignOut: () => void
 }) {
   const [kind, setKind] = useState<RecordKind>('income')
+  const isDemo = Boolean(user.is_demo)
+  const demoPersona = isDemo ? personas.find(p => user.email === `demo-${p.key}@example.com`) : undefined
+  const displayName = demoPersona ? demoPersona.label : user.email.split('@')[0]
+  const showSampleBadge = Boolean(dashboard?.analysis.is_synthetic)
   const analysis = dashboard?.analysis
   const indicators = analysis?.indicators ?? []
   const assessmentSnapshot = dashboard?.latest_assessment
@@ -236,7 +306,8 @@ function Dashboard({ user, dashboard, records, loading, busy, error, onSave, onD
     </aside>
 
     <section className="dashboard-main" id="overview">
-      <div className="dashboard-heading"><div><p className="eyebrow">YOUR FINANCIAL OVERVIEW</p><h1>Hello, {user.email.split('@')[0]}</h1><p>Track your monthly money patterns and understand what they may be telling you.</p></div><div className="heading-actions"><span className="date-chip"><Clock3 size={14} /> {new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span><button className="submit-button compact" onClick={onAssess} disabled={busy}>{busy ? 'Saving…' : <><Sparkles size={15} /> Save assessment</>}</button></div></div>
+      <div className="dashboard-heading"><div><p className="eyebrow">YOUR FINANCIAL OVERVIEW</p><h1>Hello, {displayName}</h1><p>Track your monthly money patterns and understand what they may be telling you.</p></div><div className="heading-actions">{showSampleBadge && <span className="sample-chip" title="These figures are generated sample data, not a real person's finances"><FlaskConical size={13} /> Sample data</span>}{showSampleBadge && !isDemo && <button className="text-button small" onClick={onClearSample} disabled={busy}>Clear sample data</button>}<span className="date-chip"><Clock3 size={14} /> {new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span><button className="submit-button compact" onClick={onAssess} disabled={busy}>{busy ? 'Saving…' : <><Sparkles size={15} /> Save assessment</>}</button></div></div>
+      {isDemo && <div className="demo-banner" role="note"><FlaskConical size={16} /><span><strong>You're viewing a shared demo account{demoPersona ? `: ${demoPersona.label}` : ''}.</strong> It's read-only and its figures are invented. Create your own account to add records or load sample data you can change.</span><button className="submit-button compact" onClick={onSignOut}>Create my account</button></div>}
       {error && <div className="dashboard-alert" role="alert">{error}</div>}
       {loading || !dashboard || !analysis ? <div className="loading-panel"><span className="status-dot" /> Loading your financial profile…</div> : <>
         <div className="metric-grid">
@@ -273,11 +344,14 @@ function Dashboard({ user, dashboard, records, loading, busy, error, onSave, onD
 
             <section className="panel records-panel" id="records">
               <div className="panel-heading"><div><h2>Recent records</h2><p>{dashboard.record_count} reported financial record{dashboard.record_count === 1 ? '' : 's'}</p></div></div>
-              {records.length ? <div className="record-list">{records.slice(0, 8).map(record => <RecordRow key={`${record.kind}-${record.id}`} record={record} onDelete={() => onDelete(record)} disabled={busy} />)}</div> : <div className="empty-records"><Wallet size={20} /><span>No financial records yet. Add your first entry to see it here.</span></div>}
+              {records.length ? <div className="record-list">{records.slice(0, 8).map(record => <RecordRow key={`${record.kind}-${record.id}`} record={record} onDelete={isDemo ? undefined : () => onDelete(record)} disabled={busy} />)}</div> : <div className="empty-records"><Wallet size={20} /><span>No financial records yet. Add your first entry to see it here.</span></div>}
             </section>
           </div>
 
-          <div className="right-column"><RecordForm kind={kind} onKindChange={setKind} onSave={onSave} busy={busy} />
+          <div className="right-column">
+            {!isDemo && dashboard.record_count === 0 && personas.length > 0 && <SamplePanel personas={personas} busy={busy} onLoad={onLoadSample} />}
+            {isDemo ? <section className="panel quick-panel"><div className="quick-icon"><FlaskConical size={17} /></div><h3>Read-only demo</h3><p>Adding and deleting records is turned off for shared demo accounts. Sign out and create your own account to try it.</p></section>
+              : <RecordForm kind={kind} onKindChange={setKind} onSave={onSave} busy={busy} />}
             <section className="panel quick-panel"><div className="quick-icon"><ShieldCheck size={17} /></div><h3>Private by design</h3><p>Your financial entries are scoped to your account. Lender access and sharing controls are not implemented yet.</p></section>
           </div>
         </div>
@@ -305,8 +379,17 @@ function RecommendationRow({ item }: { item: Recommendation }) {
   return <div className={`recommendation ${item.severity}`}><span className="rec-icon" aria-hidden="true">{severityIcons[item.severity]}</span><div><em className="rec-tag">{severityLabels[item.severity]}</em><p>{item.message}</p></div></div>
 }
 
-function RecordRow({ record, onDelete, disabled }: { record: FinancialRecord; onDelete: () => void; disabled: boolean }) {
-  return <div className="record-row"><span className={`record-kind-icon ${record.kind}`}><Banknote size={15} /></span><div className="record-info"><strong>{record.category}</strong><small>{labels[record.kind]} · {new Date(`${record.period_start}T12:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}{record.source_label ? ` · ${record.source_label}` : ''}</small></div><div className="record-amount"><strong>{inr(record.amount)}</strong>{record.kind === 'debt' && record.required_payment !== null && <small>{inr(record.required_payment)} / month</small>}</div><button className="icon-button" onClick={onDelete} disabled={disabled} title="Delete record" aria-label={`Delete ${record.category}`}><Trash2 size={14} /></button></div>
+function RecordRow({ record, onDelete, disabled }: { record: FinancialRecord; onDelete?: () => void; disabled: boolean }) {
+  return <div className="record-row"><span className={`record-kind-icon ${record.kind}`}><Banknote size={15} /></span><div className="record-info"><strong>{record.category}{record.is_sample && <em className="sample-tag">Sample</em>}</strong><small>{labels[record.kind]} · {new Date(`${record.period_start}T12:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}{record.source_label ? ` · ${record.source_label}` : ''}</small></div><div className="record-amount"><strong>{inr(record.amount)}</strong>{record.kind === 'debt' && record.required_payment !== null && <small>{inr(record.required_payment)} / month</small>}</div>{onDelete && <button className="icon-button" onClick={onDelete} disabled={disabled} title="Delete record" aria-label={`Delete ${record.category}`}><Trash2 size={14} /></button>}</div>
+}
+
+function SamplePanel({ personas, busy, onLoad }: { personas: Persona[]; busy: boolean; onLoad: (persona: PersonaKey) => void }) {
+  const [choice, setChoice] = useState<PersonaKey>(personas[0].key)
+  return <section className="panel form-panel sample-panel"><div className="form-heading"><span className="form-plus"><FlaskConical size={16} /></span><div><h2>Explore with sample data</h2><p>Fill your empty account with six months of invented figures</p></div></div>
+    <div className="persona-options" role="radiogroup" aria-label="Sample persona">{personas.map(persona => <label key={persona.key} className={`persona-option${choice === persona.key ? ' selected' : ''}`}><input type="radio" name="persona" value={persona.key} checked={choice === persona.key} onChange={() => setChoice(persona.key)} /><span><strong>{persona.label}</strong><small>{persona.description}</small></span></label>)}</div>
+    <button className="submit-button form-submit" onClick={() => onLoad(choice)} disabled={busy}>{busy ? 'Loading…' : 'Load sample data'} <ArrowRight size={15} /></button>
+    <p className="form-hint"><CircleHelp size={13} /> Sample records are marked and can be removed in one click.</p>
+  </section>
 }
 
 function RecordForm({ kind, onKindChange, onSave, busy }: {

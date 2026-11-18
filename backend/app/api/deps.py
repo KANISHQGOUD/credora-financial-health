@@ -37,3 +37,13 @@ def require_roles(*roles: UserRole):
         return user
 
     return dependency
+
+
+def require_writable_borrower(user: User = Depends(require_roles(UserRole.BORROWER))) -> User:
+    """A borrower who may change data. Shared demo accounts are read-only."""
+    if user.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo accounts are read-only. Create your own account to add or change records.",
+        )
+    return user

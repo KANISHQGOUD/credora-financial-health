@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_roles
+from app.api.deps import require_roles, require_writable_borrower
 from app.db.session import get_db
 from app.intelligence.financial_health import METHODOLOGY_VERSION, calculate_financial_health
 from app.models.audit_log import AuditLog
@@ -18,6 +18,7 @@ from app.schemas.financial import AssessmentResponse, FinancialRecordCreate, Fin
 
 router = APIRouter(tags=["financial records"])
 BORROWER = require_roles(UserRole.BORROWER)
+WRITABLE_BORROWER = require_writable_borrower
 RECORD_MODELS = {
     "income": IncomeRecord,
     "expense": ExpenseRecord,
@@ -31,6 +32,7 @@ def _entry(row: Any, kind: str) -> dict[str, Any]:
         "id": str(row.id), "kind": kind, "period_start": row.period_start, "period_end": row.period_end,
         "amount": row.amount, "currency": row.currency, "category": getattr(row, "category", "Liquid reserves"),
         "source_label": getattr(row, "source_label", None), "required_payment": getattr(row, "required_payment", None),
+        "synthetic_run_id": row.synthetic_run_id, "is_sample": row.synthetic_run_id is not None,
     }
 
 
@@ -42,7 +44,7 @@ def _load_records(db: Session, user_id: UUID) -> list[dict[str, Any]]:
 
 
 def _load_reserves(db: Session, user_id: UUID) -> list[dict[str, Any]]:
-    return [{"period_start": r.period_start, "period_end": r.period_end, "amount": r.amount}
+    return [{"period_start": r.period_start, "period_end": r.period_end, "amount": r.amount, "synthetic_run_id": r.synthetic_run_id}
             for r in db.scalars(select(CashReserveRecord).where(CashReserveRecord.user_id == user_id)).all()]
 
 
@@ -71,7 +73,7 @@ def list_financial_records(db: Session = Depends(get_db), user: User = Depends(B
 
 
 @router.post("/financial-records/{kind}", response_model=FinancialRecordResponse, status_code=status.HTTP_201_CREATED)
-def create_financial_record(kind: RecordKind, payload: FinancialRecordCreate, db: Session = Depends(get_db), user: User = Depends(BORROWER)):
+def create_financial_record(kind: RecordKind, payload: FinancialRecordCreate, db: Session = Depends(get_db), user: User = Depends(WRITABLE_BORROWER)):
     if kind == "reserve":
         record = CashReserveRecord(user_id=user.id, period_start=payload.period_start, period_end=payload.period_end,
                                    amount=payload.amount, currency=payload.currency)
@@ -99,7 +101,7 @@ def create_financial_record(kind: RecordKind, payload: FinancialRecordCreate, db
 
 
 @router.delete("/financial-records/{kind}/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_financial_record(kind: RecordKind, record_id: UUID, db: Session = Depends(get_db), user: User = Depends(BORROWER)):
+def delete_financial_record(kind: RecordKind, record_id: UUID, db: Session = Depends(get_db), user: User = Depends(WRITABLE_BORROWER)):
     model = CashReserveRecord if kind == "reserve" else RECORD_MODELS.get(kind)
     record = db.scalar(select(model).where(model.id == record_id, model.user_id == user.id))
     if record is None:

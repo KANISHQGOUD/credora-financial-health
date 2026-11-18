@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,20 @@ class Settings(BaseSettings):
     jwt_secret_key: SecretStr
     jwt_access_token_expire_minutes: int = 30
     cors_origins: str = "http://localhost:5173"
+    # Enables the shared read-only demo accounts and seeds them on startup.
+    demo_mode: bool = False
+    # Limits sign-up and sign-in attempts per client IP (slowapi syntax).
+    rate_limit_enabled: bool = True
+    auth_rate_limit: str = "10/minute"
+    # Interactive API docs at /docs; turn off for public deployments.
+    docs_enabled: bool = True
+
+    @field_validator("jwt_secret_key")
+    @classmethod
+    def secret_long_enough(cls, value: SecretStr) -> SecretStr:
+        if len(value.get_secret_value().encode()) < 32:
+            raise ValueError("JWT_SECRET_KEY must be at least 32 bytes")
+        return value
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
