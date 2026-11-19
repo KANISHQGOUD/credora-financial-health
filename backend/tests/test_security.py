@@ -44,3 +44,9 @@ def test_a_class_on_one_network_can_sign_up(client: TestClient, rate_limited: No
 def test_short_jwt_secret_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Settings(jwt_secret_key="too-short")
+
+
+@pytest.mark.parametrize("scheme", ["postgres://", "postgresql://", "postgresql+psycopg://"])
+def test_host_database_urls_use_psycopg(scheme: str) -> None:
+    settings = Settings(jwt_secret_key="x" * 32, database_url=f"{scheme}user:pw@dpg-abc-a/credora_db")
+    assert settings.database_url == "postgresql+psycopg://user:pw@dpg-abc-a/credora_db"

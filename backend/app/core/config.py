@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     # Interactive API docs at /docs; turn off for public deployments.
     docs_enabled: bool = True
 
+    @field_validator("database_url")
+    @classmethod
+    def use_psycopg_driver(cls, value: str) -> str:
+        # Hosts such as Render and Heroku hand out postgres:// or postgresql:// URLs;
+        # SQLAlchemy needs the driver named explicitly.
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
+
     @field_validator("jwt_secret_key")
     @classmethod
     def secret_long_enough(cls, value: SecretStr) -> SecretStr:
